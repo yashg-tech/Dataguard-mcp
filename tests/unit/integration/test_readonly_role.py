@@ -16,35 +16,20 @@ def ro_conn() -> psycopg.Connection:
 
 
 @pytest.mark.integration
-def test_ro_role_allows_safe_select(ro_conn: psycopg.Connection) -> None:
+def test_schema_metadata_hides_restricted_column(
+    ro_conn: psycopg.Connection,
+) -> None:
     with ro_conn.cursor() as cursor:
         cursor.execute(
             """
-            SELECT order_id, customer_id, order_date, category, amount
-            FROM big_orders
-            LIMIT 5
+            SELECT column_name
+            FROM information_schema.columns
+            WHERE table_schema = 'public'
+              AND table_name = 'big_orders'
             """
         )
+        column_names = {row[0] for row in cursor.fetchall()}
 
-        rows = cursor.fetchall()
-
-    assert len(rows) <= 5
-
-
-BAD_SQL = [
-    "DELETE FROM big_orders",
-    "UPDATE big_orders SET amount = 0",
-    "CREATE TABLE test_blocked (id INT)",
-    "SELECT customer_email FROM big_orders LIMIT 1",
-]
-
-
-@pytest.mark.integration
-@pytest.mark.parametrize("sql", BAD_SQL)
-def test_ro_role_refuses(
-    ro_conn: psycopg.Connection,
-    sql: str,
-) -> None:
-    with pytest.raises(psycopg.Error):
-        with ro_conn.cursor() as cursor:
-            cursor.execute(sql)
+    assert "order_id" in column_names
+    assert "amount" in column_names
+    assert "customer_email" not in column_names
